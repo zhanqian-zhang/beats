@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math/rand/v2"
@@ -22,6 +23,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"go.opentelemetry.io/collector/pdata/pcommon"
 
 	"github.com/elastic/beats/v7/libbeat/otelbeat/oteltest"
 	"github.com/elastic/elastic-agent-libs/mapstr"
@@ -310,33 +313,44 @@ func TestMultipleReceivers(t *testing.T) {
 }
 
 func TestReceiverDegraded(t *testing.T) {
+	benchmarkInputId := "benchmark-id"
+	inputStatusAttributes := func(state string, msg string) pcommon.Map {
+		eventAttributes := pcommon.NewMap()
+		inputStatuses := eventAttributes.PutEmptyMap("inputs")
+		benchmarkStatus := inputStatuses.PutEmptyMap(benchmarkInputId)
+		benchmarkStatus.PutStr("state", state)
+		benchmarkStatus.PutStr("msg", msg)
+		return eventAttributes
+	}
+	expectedDegradedErrorMessage := "benchmark input degraded"
+	expectedFailedErrorMessage := "benchmark input failed"
 	testCases := []struct {
 		name            string
-		status          oteltest.ExpectedStatus
+		status          *componentstatus.Event
 		benchmarkStatus string
 	}{
 		{
 			name: "failed input",
-			status: oteltest.ExpectedStatus{
-				Status: componentstatus.StatusPermanentError,
-				Error:  "benchmark input failed",
-			},
+			status: componentstatus.NewEvent(
+				componentstatus.StatusPermanentError,
+				componentstatus.WithError(errors.New(expectedFailedErrorMessage)),
+				componentstatus.WithAttributes(inputStatusAttributes("Failed", expectedFailedErrorMessage)),
+			),
 			benchmarkStatus: "failed",
 		},
 		{
 			name: "degraded input",
-			status: oteltest.ExpectedStatus{
-				Status: componentstatus.StatusRecoverableError,
-				Error:  "benchmark input degraded",
-			},
+			status: componentstatus.NewEvent(
+				componentstatus.StatusRecoverableError,
+				componentstatus.WithError(errors.New(expectedDegradedErrorMessage)),
+				componentstatus.WithAttributes(inputStatusAttributes("Degraded", expectedDegradedErrorMessage)),
+			),
 			benchmarkStatus: "degraded",
 		},
 		{
 			name: "running input",
-			status: oteltest.ExpectedStatus{
-				Status: componentstatus.StatusOK,
-				Error:  "",
-			},
+			status: componentstatus.NewEvent(componentstatus.StatusOK,
+				componentstatus.WithAttributes(inputStatusAttributes("Running", ""))),
 		},
 	}
 
@@ -347,6 +361,7 @@ func TestReceiverDegraded(t *testing.T) {
 					"filebeat": map[string]any{
 						"inputs": []map[string]any{
 							{
+								"id":      benchmarkInputId,
 								"type":    "benchmark",
 								"enabled": true,
 								"message": "test",
