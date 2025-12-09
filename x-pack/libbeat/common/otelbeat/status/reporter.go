@@ -85,6 +85,19 @@ func (r *reporter) updateStatusForRunner(id string, state status.Status, msg str
 
 func (r *reporter) UpdateStatus() {
 	evt := r.calculateOtelStatus()
+	var oppositeStatus componentstatus.Status
+	switch evt.Status() {
+	case componentstatus.StatusOK:
+		oppositeStatus = componentstatus.StatusRecoverableError
+	case componentstatus.StatusRecoverableError:
+		oppositeStatus = componentstatus.StatusOK
+	default:
+		oppositeStatus = componentstatus.StatusNone
+	}
+	if oppositeStatus != componentstatus.StatusNone {
+		dummyEvt := componentstatus.NewEvent(oppositeStatus)
+		componentstatus.ReportStatus(r.host, dummyEvt)
+	}
 	componentstatus.ReportStatus(r.host, evt)
 }
 
